@@ -3,3 +3,4 @@ python-dotenv
 colorama
 python-telegram-bot==20.8
 pytz
+APScheduler
