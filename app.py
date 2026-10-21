@@ -570,7 +570,7 @@ async def bombing_loop(context: ContextTypes.DEFAULT_TYPE, user_id: int):
             except Exception as e:
                 logger.error(f"Error in bombing loop: {e}")
                 await asyncio.sleep(2)
-    except asyncio.Cancel
+    except asyncio.CancelledError:
         pass
     finally:
         user_data['loop_active'] = False
